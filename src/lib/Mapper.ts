@@ -32,7 +32,10 @@ export default class CallbackDataAgent {
         options
       )
     } catch (err) {
-      throw new Error(`Failed to compile template: ${err.message}`)
+      if (err instanceof Error)
+        throw new Error(`Failed to compile template: ${err.message}`)
+      else
+        throw err
     }
   }
 }

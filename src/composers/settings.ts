@@ -8,7 +8,6 @@ import type { MyContext } from '../types/MyContext'
 import i18n, { getLanguageIcon } from '../lib/i18n';
 import { command } from '../lib/constants'
 import { createMainKeyboard, generateWelcomeMessage } from './helpers'
-import { getUserStorage } from '../lib/storage'
 import firefly from '../lib/firefly'
 import { AccountTypeFilter } from '../lib/firefly/model/account-type-filter'
 import { AccountRead } from '../lib/firefly/model/account-read'
@@ -53,14 +52,13 @@ bot.use(router)
 
 export default bot
 
-function settingsText(ctx: MyContext) {
-  const userId = ctx.from!.id
+async function settingsText(ctx: MyContext) {
   const {
     fireflyUrl,
     fireflyAccessToken,
     defaultAssetAccount,
     language
-  } = getUserStorage(userId)
+  } = ctx.session.settings
 
   // Grab only first 4 and last 4 chars of the token
   const accessToken = fireflyAccessToken?.replace(/(.{4})(.*?)(.{4})$/, '$1...$3')
@@ -89,11 +87,11 @@ function settingsInlineKeyboard(ctx: MyContext) {
   }
 }
 
-function settingsCommandHandler(ctx: MyContext) {
+async function settingsCommandHandler(ctx: MyContext) {
   const log = rootLog.extend('settingsCommandHandler')
   log('Entered the settingsCommandHandler...')
   return ctx.reply(
-    settingsText(ctx),
+    await settingsText(ctx),
     settingsInlineKeyboard(ctx)
   )
 }
@@ -107,8 +105,7 @@ async function fireflyAccessTokenRouteHandler(ctx: MyContext) {
   const log = rootLog.extend('fireflyAccessTokenRouteHandler')
   log('Entered fireflyAccessTokenRouteHandler...')
   try {
-    const userId = ctx.from!.id
-    const storage = getUserStorage(userId)
+    const storage = ctx.session.settings;
     log('ctx.msg: %O', ctx.msg)
     const text = ctx.msg!.text as string
     log('User entered text: %s', text)
@@ -122,10 +119,11 @@ async function fireflyAccessTokenRouteHandler(ctx: MyContext) {
     }
 
     storage.fireflyAccessToken = text
+    await storage.save()
     ctx.session.step = 'IDLE'
 
     return ctx.reply(
-      settingsText(ctx),
+      await settingsText(ctx),
       settingsInlineKeyboard(ctx)
     )
   } catch (err) {
@@ -136,8 +134,7 @@ async function fireflyUrlRouteHandler(ctx: MyContext) {
   const log = rootLog.extend('fireflyUrlRouteHandler')
   log('Entered fireflyUrlRouteHandler...')
   try {
-    const userId = ctx.from!.id
-    const storage = getUserStorage(userId)
+    const storage = ctx.session.settings;
     log('ctx.msg: %O', ctx.msg)
     const text = ctx.msg!.text as string
     log('User entered text: %s', text)
@@ -153,10 +150,12 @@ async function fireflyUrlRouteHandler(ctx: MyContext) {
     }
 
     storage.fireflyUrl = text
+    await storage.save();
+
     ctx.session.step = 'IDLE'
 
     return ctx.reply(
-      settingsText(ctx),
+      await settingsText(ctx),
       settingsInlineKeyboard(ctx)
     )
 
@@ -199,9 +198,7 @@ async function selectDefaultAssetAccountCbQH(ctx: MyContext) {
   const log = rootLog.extend('selectDefaultAssetAccountCbQH')
   log(`Entered the ${SELECT_DEFAULT_ASSET_ACCOUNT} callback query handler`)
   try {
-    const userId = ctx.from!.id
-    const { fireflyUrl, fireflyAccessToken } = getUserStorage(userId)
-    log('userId: %s', userId)
+    const { fireflyUrl, fireflyAccessToken } = ctx.session.settings
 
     if (!fireflyUrl) {
       return ctx.answerCallbackQuery({
@@ -220,8 +217,7 @@ async function selectDefaultAssetAccountCbQH(ctx: MyContext) {
         show_alert: true
       })
     }
-
-    const accounts: AccountRead[] = (await firefly(userId).Accounts.listAccount(
+    const accounts: AccountRead[] = (await firefly(ctx.session.fireflyConfiguration).Accounts.listAccount(
         1, dayjs().format('YYYY-MM-DD'), AccountTypeFilter.Asset)).data.data
     log('accounts: %O', accounts)
 
@@ -248,21 +244,19 @@ async function defaultAccountCbQH(ctx: MyContext) {
   log(`Entered the ${SELECT_DEFAULT_ASSET_ACCOUNT} query handler`)
   try {
     log('ctx: %O', ctx)
-    const userId = ctx.from!.id
-    const storage = getUserStorage(userId)
+    const storage = ctx.session.settings;
     const accountId = parseInt(ctx.match![1], 10)
     log('accountId: %O', accountId)
-
-    const account = (await firefly(userId).Accounts.getAccount(accountId)).data.data
+    const account = (await firefly(ctx.session.fireflyConfiguration).Accounts.getAccount(accountId)).data.data
     log('account: %O', account)
 
     storage.defaultAssetAccount = account.attributes.name
     storage.defaultAssetAccountId = accountId
-
+    await storage.save()
     await ctx.answerCallbackQuery({ text: ctx.i18n.t('settings.defaultAssetAccountSet') })
 
     return ctx.editMessageText(
-      settingsText(ctx),
+      await settingsText(ctx),
       settingsInlineKeyboard(ctx)
     )
   } catch (err) {
@@ -281,7 +275,7 @@ async function cancelCbQH(ctx: MyContext) {
 
     await ctx.deleteMessage()
     return ctx.reply(
-      settingsText(ctx),
+      await settingsText(ctx),
       settingsInlineKeyboard(ctx)
     )
   } catch (err) {
@@ -294,8 +288,7 @@ async function testConnectionCbQH(ctx: MyContext) {
   log('Entered testConnectionCbQH action handler')
   log('ctx: %O', ctx)
   try {
-    const userId  = ctx.from!.id
-    const { fireflyUrl, fireflyAccessToken } = getUserStorage(userId)
+    const { fireflyUrl, fireflyAccessToken } = ctx.session.settings
 
     if (!fireflyUrl) {
       return ctx.answerCallbackQuery({
@@ -315,9 +308,16 @@ async function testConnectionCbQH(ctx: MyContext) {
       })
     }
 
-    const userInfo = (await firefly(userId).About.getCurrentUser()).data.data
-    log('Firefly user info: %O', userInfo)
-
+    let userInfo = null;
+    try {
+      const resp = await firefly(ctx.session.fireflyConfiguration).About.getCurrentUser() 
+      console.log("resp", resp)
+      userInfo = resp.data.data
+      log('Firefly user info: %O', userInfo)
+    } catch (err) {
+      throw err;
+    }
+    
     if (!userInfo) return ctx.answerCallbackQuery({
       text: ctx.i18n.t('settings.connectionFailed'),
       show_alert: true
@@ -337,16 +337,16 @@ async function switchLanguageCbQH(ctx: MyContext) {
   log(`Entered the switch language query handler`)
   try {
     log('ctx: %O', ctx)
-    const userId = ctx.from!.id
-    const storage = getUserStorage(userId)
+    const storage = ctx.session.settings
     const language = ctx.match![1]
     log('language: %O', language)
 
     ctx.i18n.locale(language)
     dayjs.locale(language)
     storage.language = language
+    await storage.save()
 
-    const welcomeMessage = generateWelcomeMessage(ctx)
+    const welcomeMessage = await generateWelcomeMessage(ctx)
 
     ctx.reply(welcomeMessage, {
       parse_mode: 'Markdown',
@@ -357,7 +357,7 @@ async function switchLanguageCbQH(ctx: MyContext) {
     })
 
     return ctx.editMessageText(
-      settingsText(ctx),
+      await settingsText(ctx),
       settingsInlineKeyboard(ctx)
     )
   } catch (err) {

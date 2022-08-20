@@ -68,7 +68,6 @@ async function showEditTransactionMenu(ctx: MyContext) {
     // Prevent all router handlers from happening
     ctx.session.step = 'IDLE'
 
-    const userId = ctx.from!.id
     const { editTransaction } = ctx.session
     log('transaction: %O', editTransaction)
 
@@ -76,7 +75,7 @@ async function showEditTransactionMenu(ctx: MyContext) {
     log('trId: %O', trId)
 
     const tr =
-      (await firefly(userId).Transactions.getTransaction(trId)).data.data
+      (await firefly(ctx.session.fireflyConfiguration).Transactions.getTransaction(trId)).data.data
 
     ctx.session.editTransaction = tr
 
@@ -124,7 +123,7 @@ async function doneEditTransactionCbQH(ctx: MyContext) {
 
     await ctx.answerCallbackQuery()
 
-    const tr = (await firefly(userId).Transactions.getTransaction(trId)).data.data
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.getTransaction(trId)).data.data
 
     return ctx.editMessageText(
       formatTransaction(ctx, tr),
@@ -179,7 +178,6 @@ async function changeAmountRouteHandler(ctx: MyContext) {
   const log = rootLog.extend('changeAmountRouteHandler')
   log('Entered change amount route handler')
   try {
-    const userId = ctx.from!.id
     log('ctx.session: %O', ctx.session)
     const text = ctx.msg?.text || ''
     const amount = parseAmountInput(text)
@@ -201,7 +199,7 @@ async function changeAmountRouteHandler(ctx: MyContext) {
       await ctx.session.deleteBotsMessage()
     }
 
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ amount: amount.toString() }] }
     )).data.data
@@ -219,7 +217,6 @@ async function changeDescriptionRouteHandler(ctx: MyContext) {
   const log = rootLog.extend('changeDescriptionRouteHandler')
   log('Entered change description route handler')
   try {
-    const userId = ctx.from!.id
     log('ctx.session: %O', ctx.session)
     const description = ctx.msg?.text || ''
     log('description: %O', description)
@@ -240,7 +237,7 @@ async function changeDescriptionRouteHandler(ctx: MyContext) {
       await ctx.session.deleteBotsMessage()
     }
 
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ description: description.trim() }] }
     )).data.data
@@ -258,13 +255,12 @@ async function selectNewCategory(ctx: MyContext) {
   const log = rootLog.extend('selectNewCategory')
   log('Entered selectNewCategory action handler')
   try {
-    const userId = ctx.from!.id
     const trId = ctx.match![1]
 
     await ctx.answerCallbackQuery()
 
     const categoriesKeyboard = await createCategoriesKeyboard(
-      userId,
+      ctx.session,
       mapper.setCategory
     )
     categoriesKeyboard
@@ -283,13 +279,12 @@ async function selectNewAssetAccount(ctx: MyContext) {
   const log = rootLog.extend('selectNewAssetAccount')
   log('Entered selectNewAssetAccount action handler')
   try {
-    const userId = ctx.from!.id
     const trId = ctx.match![1]
 
     await ctx.answerCallbackQuery()
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Asset,
       mapper.setAssetAccount
     )
@@ -312,13 +307,12 @@ async function selectNewDepositAssetAccount(ctx: MyContext) {
   const log = rootLog.extend('selectNewDepositAssetAccount')
   log('Entered selectNewDepositAssetAccount action handler')
   try {
-    const userId = ctx.from!.id
     const trId = ctx.match![1]
 
     await ctx.answerCallbackQuery()
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Asset,
       mapper.setDepositAssetAccount
     )
@@ -341,12 +335,11 @@ async function selectNewExpenseAccount(ctx: MyContext) {
   const log = rootLog.extend('selectNewExpenseAccount')
   log('Entered selectNewExpenseAccount action handler')
   try {
-    const userId = ctx.from!.id
     const trId = ctx.match![1]
 
     await ctx.answerCallbackQuery()
 
-    const accountsKeyboard = await createExpenseAccountsKeyboard(userId)
+    const accountsKeyboard = await createExpenseAccountsKeyboard(ctx.session)
     accountsKeyboard
       .text(ctx.i18n.t('labels.CANCEL'), mapper.editMenu.template({ trId }))
 
@@ -363,13 +356,12 @@ async function selectNewRevenueAccount(ctx: MyContext) {
   const log = rootLog.extend('selectNewRevenueAccount')
   log('Entered selectNewRevenueAccount action handler')
   try {
-    const userId = ctx.from!.id
     const trId = ctx.match![1]
 
     await ctx.answerCallbackQuery()
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Revenue,
       mapper.setRevenueAccount
     )
@@ -389,7 +381,6 @@ async function setNewCategory(ctx: MyContext) {
   const log = rootLog.extend('setNewCategory')
   log('Entered editTransactionCategory action handler')
   try {
-    const userId = ctx.from!.id
     const categoryId = ctx.match![1]
     log('categoryId: %O', categoryId)
 
@@ -397,7 +388,7 @@ async function setNewCategory(ctx: MyContext) {
 
     const trId = ctx.session.editTransaction.id || ''
     log('trId: %O', trId)
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ category_id: categoryId }]}
     )).data.data
@@ -416,7 +407,6 @@ async function setNewAssetAccount(ctx: MyContext) {
   const log = rootLog.extend('setNewAssetAccount')
   log('Entered setNewAssetAccount action handler')
   try {
-    const userId = ctx.from!.id
     const sourceId = ctx.match![1]
     log('sourceId: %O', sourceId)
 
@@ -424,7 +414,7 @@ async function setNewAssetAccount(ctx: MyContext) {
 
     const trId = ctx.session.editTransaction.id || ''
     log('trId: %O', trId)
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ source_id: sourceId }]}
     )).data.data
@@ -443,7 +433,6 @@ async function setNewExpenseAccount(ctx: MyContext) {
   const log = rootLog.extend('setNewExpenseAccount')
   log('Entered setNewExpenseAccount action handler')
   try {
-    const userId = ctx.from!.id
     const destId = ctx.match![1]
     log('destId: %O', destId)
 
@@ -451,7 +440,7 @@ async function setNewExpenseAccount(ctx: MyContext) {
 
     const trId = ctx.session.editTransaction.id || ''
     log('trId: %O', trId)
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ destination_id: destId }]}
     )).data.data
@@ -470,7 +459,6 @@ async function setNewRevenueAccount(ctx: MyContext) {
   const log = rootLog.extend('setNewRevenueAccount')
   log('Entered setNewRevenueAccount action handler')
   try {
-    const userId = ctx.from!.id
     const sourceId = ctx.match![1]
     log('destId: %O', sourceId)
 
@@ -478,7 +466,7 @@ async function setNewRevenueAccount(ctx: MyContext) {
 
     const trId = ctx.session.editTransaction.id || ''
     log('trId: %O', trId)
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ source_id: sourceId }]}
     )).data.data
@@ -496,7 +484,6 @@ async function setNewDepositAssetAccount(ctx: MyContext) {
   const log = rootLog.extend('setNewDepositAssetAccount')
   log('Entered setNewDepositAssetAccount action handler')
   try {
-    const userId = ctx.from!.id
     const destinationId = ctx.match![1]
     log('destId: %O', destinationId)
 
@@ -504,7 +491,7 @@ async function setNewDepositAssetAccount(ctx: MyContext) {
 
     const trId = ctx.session.editTransaction.id || ''
     log('trId: %O', trId)
-    const tr = (await firefly(userId).Transactions.updateTransaction(
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.updateTransaction(
       parseInt(trId, 10),
       { transactions: [{ destination_id: destinationId }]}
     )).data.data

@@ -2,7 +2,7 @@ import debug from 'debug'
 
 import i18n from './i18n'
 import { command } from './constants'
-import { getUserStorage } from './storage'
+import { getUserSettings } from './storage'
 import type { MyContext } from '../types/MyContext'
 
 const rootLog = debug(`bot:mdlwr`)
@@ -71,6 +71,9 @@ export function requireSettings() {
       log('isCallbackQuery: %O', isCallbackQuery)
       log('whiteList.includes(text): %O', whiteList.includes(text.replace(/^\//, '')))
 
+      const userId = ctx.from!.id
+      ctx.session.settings = await getUserSettings(userId);
+      
       // We need to watch out for the keyboard commands a users clicks on:
       if (whiteList.includes(text)) return next()
 
@@ -78,26 +81,7 @@ export function requireSettings() {
         log('Exiting the middleware...')
         return next()
       }
-
-      const userId = ctx.from!.id
-      const { fireflyAccessToken, fireflyUrl } = getUserStorage(userId)
-      log('fireflyAccessToken: %O', fireflyAccessToken)
-      log('fireflyUrl: %O', fireflyUrl)
-
-      if (!fireflyUrl) {
-        log('Replying with a message...')
-        return await ctx.reply(ctx.i18n.t('mdlwr.noFireflyURLFound'), {
-          parse_mode: 'Markdown'
-        })
-      }
-
-      if (!fireflyAccessToken) {
-        log('Replying with a message...')
-        return await ctx.reply(ctx.i18n.t('mdlwr.noFireflyAccessTokenFound'), {
-          parse_mode: 'Markdown'
-        })
-      }
-
+      
       return next()
     } catch (err) {
       console.error('Error occurred in requireSettings: ', err)

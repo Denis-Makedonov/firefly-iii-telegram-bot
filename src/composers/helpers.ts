@@ -7,12 +7,12 @@ import { Keyboard, InlineKeyboard } from 'grammy'
 import firefly from '../lib/firefly'
 import Mapper from '../lib/Mapper'
 import type { MyContext } from '../types/MyContext'
-import { getUserStorage } from '../lib/storage'
 import { TransactionRead } from '../lib/firefly/model/transaction-read'
 import { TransactionSplitTypeEnum } from '../lib/firefly/model/transaction-split'
 import { TransactionSplit } from '../lib/firefly/model/transaction-split'
 import { AccountTypeFilter } from '../lib/firefly/model/account-type-filter'
 import { AccountTypeEnum } from '../lib/firefly/model/account'
+import { SessionData } from '../types/SessionData'
 
 const debug = Debug('bot:transactions:helpers')
 
@@ -132,10 +132,10 @@ function formatTransaction(ctx: MyContext, tr: Partial<TransactionRead>){
   return ctx.i18n.t(translationString, { ...baseProps })
 }
 
-async function createCategoriesKeyboard(userId: number, mapper: Mapper) {
+async function createCategoriesKeyboard(session: SessionData, mapper: Mapper) {
   const log = debug.extend('createCategoriesKeyboard')
   try {
-    const categories = (await firefly(userId).Categories.listCategory()).data.data
+    const categories = (await firefly(session.fireflyConfiguration).Categories.listCategory()).data.data
     log('categories: %O', categories)
     const keyboard = new InlineKeyboard()
 
@@ -159,14 +159,14 @@ async function createCategoriesKeyboard(userId: number, mapper: Mapper) {
 }
 
 async function createAccountsKeyboard(
-  userId: number,
+  session: SessionData,
   accountType: AccountTypeFilter,
   mapper: Mapper,
   opts?: { skipAccountId: string }
 ) {
   const log = debug.extend('createAccountKeyboard')
   try {
-    let accounts = (await firefly(userId).Accounts.listAccount(
+    let accounts = (await firefly(session.fireflyConfiguration).Accounts.listAccount(
         1, dayjs().format('YYYY-MM-DD'), accountType)).data.data
     // log('accounts: %O', accounts)
     const keyboard = new InlineKeyboard()
@@ -196,10 +196,10 @@ async function createAccountsKeyboard(
   }
 }
 
-async function createExpenseAccountsKeyboard(userId: number) {
+async function createExpenseAccountsKeyboard(session: SessionData) {
   const log = debug.extend('createAssetsAccountKeyboard')
   try {
-    const accounts = (await firefly(userId).Accounts.listAccount(
+    const accounts = (await firefly(session.fireflyConfiguration).Accounts.listAccount(
         1, dayjs().format('YYYY-MM-DD'), AccountTypeFilter.Expense)).data.data
     // log('accounts: %O', accounts)
     const keyboard = new InlineKeyboard()
@@ -265,7 +265,11 @@ function formatTransactionUpdate(
 
   } catch (err) {
     console.error(err)
-    return err.message
+    if (err instanceof Error) {
+      return err.message;
+    } else {
+      throw err;
+    }
   }
 }
 
@@ -370,12 +374,11 @@ function createAccountsMenuKeyboard( ctx: MyContext, accType: AccountTypeEnum) {
   return keyboard
 }
 
-function generateWelcomeMessage(ctx: MyContext) {
+async function generateWelcomeMessage(ctx: MyContext) {
   const log = debug.extend('generateWelcomeMessage')
 
   log('start: %O', ctx.message)
-  const userId = ctx.from!.id
-  const { fireflyUrl, fireflyAccessToken } = getUserStorage(userId)
+  const { fireflyUrl, fireflyAccessToken } = ctx.session.settings
 
   let welcomeMessage: string = ctx.i18n.t('welcome')
   const isConfigured = !!(fireflyUrl && fireflyAccessToken)

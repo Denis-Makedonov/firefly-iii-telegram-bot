@@ -19,13 +19,11 @@ import categories from './composers/categories'
 
 import type { MyContext } from './types/MyContext'
 import type { SessionData } from './types/SessionData'
-
-export const Route = {
-  idle: 'IDLE'
-}
+import { initialSettings } from './lib/storage';
+import { Configuration } from './lib/firefly/configuration';
+import { setupFirefly } from './lib/firefly';
 
 const rootLog = debug(`bot:root`)
-
 const bot = new Bot<MyContext>(config.botToken)
 
 // Attach a session middleware and specify the initial data
@@ -36,6 +34,8 @@ bot.use(
       newTransaction: { transactions: []},
       editTransaction: {},
       category: {},
+      settings: initialSettings(),
+      fireflyConfiguration: new Configuration(),
       newCategories: [],
     }),
   })
@@ -45,6 +45,7 @@ bot.use(i18n.middleware());
 // Our custom middlewares
 bot.use(requireSettings())
 bot.use(cleanup())
+bot.use(setupFirefly)
 bot.use(addTransaction)
 bot.use(editTransaction)
 bot.use(listTransactions)
@@ -67,8 +68,8 @@ async function startHandler(ctx: MyContext) {
 
   await setBotCommands(ctx)
 
-  const welcomeMessage = generateWelcomeMessage(ctx)
-
+  const welcomeMessage = await generateWelcomeMessage(ctx)
+  
   return ctx.reply(welcomeMessage, {
     parse_mode: 'Markdown',
     reply_markup: {

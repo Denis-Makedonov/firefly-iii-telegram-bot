@@ -10,3 +10,4 @@
 /dist/
 .openapi-generator
 .env
+/.vscode/

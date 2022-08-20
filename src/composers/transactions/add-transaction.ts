@@ -3,7 +3,7 @@ import debug from 'debug'
 import { Composer } from 'grammy'
 
 import type { MyContext } from '../../types/MyContext'
-import { getUserStorage } from '../../lib/storage'
+import { getUserSettings } from '../../lib/storage'
 import {
   addTransactionsMapper as mapper,
   parseAmountInput,
@@ -17,6 +17,7 @@ import firefly from '../../lib/firefly'
 import { TransactionRead } from '../../lib/firefly/model/transaction-read'
 import { TransactionSplitStoreTypeEnum } from '../../lib/firefly/model/transaction-split-store'
 import { AccountTypeFilter } from '../../lib/firefly/model/account-type-filter'
+import { SessionData } from '../../types/SessionData'
 
 const rootLog = debug(`bot:transactions:add`)
 
@@ -43,7 +44,6 @@ export async function addTransaction(ctx: MyContext) {
   const log = rootLog.extend('textHandler')
   log('Entered text handler')
   try {
-    const userId = ctx.from!.id
     const text = ctx.message!.text as string
     log('ctx.message.text: %O', text)
 
@@ -63,7 +63,7 @@ export async function addTransaction(ctx: MyContext) {
       parse_mode: 'Markdown'
     }))
 
-    const defaultAssetAccountId = await getDefaultAccountId(userId)
+    const defaultAssetAccountId = await getDefaultAccountId(ctx)
     log('defaultAssetAccountId: %O', defaultAssetAccountId)
 
     // If description is not null, than we'll add transaction in a fast mode
@@ -73,7 +73,7 @@ export async function addTransaction(ctx: MyContext) {
 
     if (description) {
       const tr = await createFastTransaction(
-        userId,
+        ctx.session,
         amount,
         description,
         defaultAssetAccountId.toString()
@@ -98,7 +98,7 @@ export async function addTransaction(ctx: MyContext) {
     }
 
     const keyboard = await createCategoriesKeyboard(
-      userId,
+      ctx.session,
       mapper.selectCategory
     )
     keyboard
@@ -114,7 +114,10 @@ export async function addTransaction(ctx: MyContext) {
   } catch (err) {
     log('Error: %O', err)
     console.error('Error occurred handling text message: ', err)
-    return ctx.reply(err.message)
+    if (err instanceof Error)
+      return ctx.reply(err.message)
+    else
+      throw err
   }
 }
 
@@ -123,17 +126,15 @@ async function newTransactionCategoryCbQH(ctx: MyContext) {
   log('Entered the newTransactionCategory callback handler...')
 
   try {
-    const userId = ctx.from!.id
     const transaction = ctx.session.newTransaction
     const categoryId = ctx.match![1]
     transaction.transactions![0].category_id = categoryId
 
-    const defaultAssetAccount = await getDefaultAccountId(userId)
+    const defaultAssetAccount = await getDefaultAccountId(ctx)
     log('defaultAssetAccount: %O', defaultAssetAccount)
 
     log('transaction: %O', transaction)
-
-    const tr = (await firefly(userId).Transactions.storeTransaction(transaction)).data.data
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.storeTransaction(transaction)).data.data
     log('Created transaction: %O', tr)
     ctx.session.newTransaction = { transactions: [] }
 
@@ -146,9 +147,12 @@ async function newTransactionCategoryCbQH(ctx: MyContext) {
   } catch (err) {
     await ctx.answerCallbackQuery({ text: ctx.i18n.t('common.errorOccurred') })
     console.error('Error occurred in category action handler: ', err)
-    return ctx.editMessageText(
-      ctx.i18n.t('transactions.add.transactionError', { message: err.message })
-    )
+    if (err instanceof Error)
+      return ctx.editMessageText(
+        ctx.i18n.t('transactions.add.transactionError', { message: err.message })
+      )
+    else
+      throw err
   }
 }
 
@@ -168,10 +172,8 @@ async function deleteTransactionActionHandler(ctx: MyContext) {
   const log = rootLog.extend('deleteTransactionActionHandler')
   log('Entered deleteTransaction action handler')
   try {
-    const userId = ctx.from!.id
     const trId = parseInt(ctx.match![1], 10)
-
-    if (trId || !isNaN(trId)) await firefly(userId).Transactions.deleteTransaction(trId)
+    if (trId || !isNaN(trId)) await firefly(ctx.session.fireflyConfiguration).Transactions.deleteTransaction(trId)
     else return ctx.reply(
       ctx.i18n.t('transactions.add.couldNotDelete', { id: trId })
     )
@@ -183,7 +185,7 @@ async function deleteTransactionActionHandler(ctx: MyContext) {
   }
 }
 
-async function createFastTransaction(userId: number, amount: number, description: string, accountId: string): Promise<TransactionRead> {
+async function createFastTransaction(session: SessionData, amount: number, description: string, accountId: string): Promise<TransactionRead> {
   const log = rootLog.extend('createFastTransaction')
   try {
     const transactionStore = {
@@ -196,7 +198,7 @@ async function createFastTransaction(userId: number, amount: number, description
         destination_id: null,
       }]
     }
-    const res = (await firefly(userId).Transactions.storeTransaction(transactionStore)).data.data
+    const res = (await firefly(session.fireflyConfiguration).Transactions.storeTransaction(transactionStore)).data.data
 
     // log('res: %O', res)
     const tr = res.attributes.transactions[0]
@@ -218,8 +220,6 @@ async function startCreatingDepositTransaction(ctx: MyContext) {
     if (!amount) return ctx.reply('ALOHA!')
     log('ctx.session: %O', ctx.session)
 
-    const userId = ctx.from!.id
-
     ctx.session.newTransaction = {
       transactions: [{
         type: TransactionSplitStoreTypeEnum.Deposit,
@@ -232,7 +232,7 @@ async function startCreatingDepositTransaction(ctx: MyContext) {
     }
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Revenue,
       mapper.selectRevenueAccount
     )
@@ -260,13 +260,11 @@ async function selectAssetAccount(ctx: MyContext) {
     log('revenueAccountId: ', revenueAccountId)
     log('ctx.session: %O', ctx.session)
 
-    const userId = ctx.from!.id
-
     const amount = ctx.session.newTransaction.transactions![0].amount
     ctx.session.newTransaction.transactions![0].source_id = revenueAccountId
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Asset,
       mapper.selectAssetAccount
     )
@@ -294,14 +292,12 @@ async function selectDestAccount(ctx: MyContext) {
     log('sourceId: ', sourceId)
     log('ctx.session: %O', ctx.session)
 
-    const userId = ctx.from!.id
-
     const transaction = ctx.session.newTransaction.transactions[0]
     const amount = transaction.amount
     transaction.source_id = sourceId
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Asset,
       mapper.selectDestAccount,
       { skipAccountId: transaction.source_id }
@@ -330,12 +326,9 @@ async function createDepositTransaction(ctx: MyContext) {
     log('assetAccountId: ', assetAccountId)
     log('ctx.session: %O', ctx.session)
 
-    const userId = ctx.from!.id
-
     const transaction = ctx.session.newTransaction
     transaction.transactions[0].destination_id = assetAccountId
-
-    const tr = (await firefly(userId).Transactions.storeTransaction(transaction)).data.data
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.storeTransaction(transaction)).data.data
 
     return ctx.editMessageText(
       formatTransaction(ctx, tr),
@@ -359,8 +352,6 @@ async function startCreatingTransferTransaction(ctx: MyContext) {
     if (!amount) return ctx.reply('No amount specified')
     log('ctx.session: %O', ctx.session)
 
-    const userId = ctx.from!.id
-
     ctx.session.newTransaction = {
       transactions: [{
         type: TransactionSplitStoreTypeEnum.Transfer,
@@ -373,7 +364,7 @@ async function startCreatingTransferTransaction(ctx: MyContext) {
     }
 
     const accountsKeyboard = await createAccountsKeyboard(
-      userId,
+      ctx.session,
       AccountTypeFilter.Asset,
       mapper.selectSourceAccount
     )
@@ -401,12 +392,9 @@ async function createTransferTransaction(ctx: MyContext) {
     log('destId: ', destId)
     log('ctx.session: %O', ctx.session)
 
-    const userId = ctx.from!.id
-
     const transaction = ctx.session.newTransaction
     transaction.transactions[0].destination_id = destId
-
-    const tr = (await firefly(userId).Transactions.storeTransaction(transaction)).data.data
+    const tr = (await firefly(ctx.session.fireflyConfiguration).Transactions.storeTransaction(transaction)).data.data
 
     return ctx.editMessageText(
       formatTransaction(ctx, tr),
@@ -420,13 +408,13 @@ async function createTransferTransaction(ctx: MyContext) {
   }
 }
 
-async function getDefaultAccountId(userId: number) {
+async function getDefaultAccountId(ctx: MyContext) {
   const log = rootLog.extend('getDefaultAccountId')
   try {
-    let { defaultAssetAccountId } = getUserStorage(userId)
+    let { defaultAssetAccountId } = ctx.session.settings
 
     if (!defaultAssetAccountId) {
-      const firstAccount = (await firefly(userId).Accounts.listAccount(
+      const firstAccount = (await firefly(ctx.session.fireflyConfiguration).Accounts.listAccount(
         1, dayjs().format('YYYY-MM-DD'), AccountTypeFilter.Asset)).data.data[0]
       log('firstAccount: %O', firstAccount)
       defaultAssetAccountId = parseInt(firstAccount.id, 10)

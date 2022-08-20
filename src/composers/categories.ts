@@ -134,12 +134,10 @@ async function doDeleteCategoryCbQH(ctx: MyContext) {
   const log = rootLog.extend('doDeleteCategoryCbQH')
   log('Entered the doDeleteCategoryCbQH...')
   try {
-    const userId = ctx.from!.id
     log('ctx.match: %O', ctx.match)
     const categoryId = parseInt(ctx.match![1], 10)
     log('categoryId: %O', categoryId)
-
-    await firefly(userId).Categories.deleteCategory(categoryId)
+    await firefly(ctx.session.fireflyConfiguration).Categories.deleteCategory(categoryId)
     await ctx.answerCallbackQuery({ text: ctx.i18n.t('categories.deleted') })
 
     return replyWithListOfCategories(ctx)
@@ -147,7 +145,10 @@ async function doDeleteCategoryCbQH(ctx: MyContext) {
   } catch (err) {
     log('Error: %O', err)
     console.error(err)
-    ctx.reply('Error occurred deleting a category: ', err.message)
+    if (err instanceof Error)
+      ctx.reply(`Error occurred deleting a category: ${err.message}`)
+    else
+      throw err
   }
 }
 
@@ -185,13 +186,11 @@ async function newCategoryNameRouteHandler(ctx: MyContext) {
   const log = rootLog.extend('newCategoryNameRouteHandler')
   log('Entered newCategoryNameRouteHandler...')
   try {
-    const userId = ctx.from!.id
     log('ctx.session: %O', ctx.session)
     const text = ctx.msg?.text || ''
 
     const categoryId = ctx.session.category.id
-
-    await firefly(userId).Categories.updateCategory(categoryId, { name: text })
+    await firefly(ctx.session.fireflyConfiguration).Categories.updateCategory(categoryId, { name: text })
     return replyWithListOfCategories(ctx)
   } catch (err) {
     console.error(err)
@@ -230,10 +229,9 @@ async function confirmCategoriesCbQH(ctx: MyContext) {
   const log = rootLog.extend('confirmCategoriesCbQH')
   try {
     log('Creating categories in firefly(userId): %O', ctx.session.newCategories)
-    const userId = ctx.from!.id
 
     for (const category of ctx.session.newCategories) {
-      await firefly(userId).Categories.storeCategory({ name: category })
+      await firefly(ctx.session.fireflyConfiguration).Categories.storeCategory({ name: category })
     }
 
     await ctx.answerCallbackQuery({ text: 'Категории созданы!' })
@@ -247,8 +245,7 @@ async function replyWithListOfCategories(ctx: MyContext) {
   const log = rootLog.extend('replyWithListOfCategories')
   log('ctx: %O', ctx)
   try {
-    const userId = ctx.from!.id
-    const categories = (await firefly(userId).Categories.listCategory()).data.data
+    const categories = (await firefly(ctx.session.fireflyConfiguration).Categories.listCategory()).data.data
     const categoriesNames = categories.map((c: any) => c.attributes.name)
     // log('categories: %O', categories)
 
@@ -279,8 +276,7 @@ async function replyWithListOfCategories(ctx: MyContext) {
 export async function createCategoriesInlineKeyboard(ctx: MyContext): Promise<InlineKeyboard> {
   const log = rootLog.extend('createCategoriesInlineKeyboard')
   try {
-    const userId = ctx.from!.id
-    const categories = (await firefly(userId).Categories.listCategory()).data.data
+    const categories = (await firefly(ctx.session.fireflyConfiguration).Categories.listCategory()).data.data
     const keyboard = new InlineKeyboard()
     const nowDate = dayjs().format('YYYY-MM-DD')
 
@@ -321,11 +317,11 @@ async function showCategoryDetails(ctx: MyContext) {
     const end = dayjs(startDate).endOf('month') as any
     log('start: %O', start)
     log('end: %O', end)
-
-    const categoryPromise = firefly(userId).Categories.getCategory(categoryId)
-    const categoryTransactionsPromise = firefly(userId).Categories
+    const _firefly = firefly(ctx.session.fireflyConfiguration)
+    const categoryPromise = _firefly.Categories.getCategory(categoryId)
+    const categoryTransactionsPromise = _firefly.Categories
       .listTransactionByCategory(categoryId, 1, start, end)
-    const expenseCategoriesPromise = firefly(userId).Insight
+    const expenseCategoriesPromise = _firefly.Insight
       .insightExpenseCategory(start, end, [categoryId])
 
     // Resolve all the promises
